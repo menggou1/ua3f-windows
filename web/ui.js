@@ -58,7 +58,7 @@
       saveDisabled: busy || (running && !dirty),
       saveLabel: running ? (dirty ? "应用并重启" : "配置已生效") : "保存配置",
       startDisabled: busy || running,
-      stopDisabled: busy || !running,
+      stopDisabled: busy || (!running && status !== "error"),
       exitDisabled: busy,
     };
   }
@@ -90,5 +90,16 @@
     throw new Error("等待停止超时，请查看实时日志");
   }
 
-  return { applyAndRestart, controlState, formatDuration, statusPresentation, validateConfig };
+  function formatDiagnostics(result) {
+    const lines = [];
+    if (result.error) lines.push(`诊断未完成：${result.error}`);
+    for (const service of result.services || []) {
+      lines.push(`${service.service} · ${service.running ? "运行中" : "未运行"}`,
+        `注册路径：${service.registeredPath}`, `当前路径：${service.expectedPath}`, service.message, "");
+    }
+    if (!result.error && !result.services?.length) lines.push("未发现已注册的 WinDivert 服务。首次启动前属于正常情况。");
+    return lines.join("\n");
+  }
+
+  return { applyAndRestart, controlState, formatDiagnostics, formatDuration, statusPresentation, validateConfig };
 });

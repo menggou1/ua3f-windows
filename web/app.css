@@ -287,6 +287,18 @@ input[aria-invalid="true"] {
   line-height: 1.5;
 }
 
+#diagnostics {
+  color: var(--text);
+  background: var(--panel-strong);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 18px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
 @media (max-width: 900px) {
   .hero,
   .grid {

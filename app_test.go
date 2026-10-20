@@ -125,7 +125,7 @@ func TestStartWebServerServesConfigAndPage(t *testing.T) {
 	}
 	defer server.Close()
 
-	resp, err := http.Get(url + "/api/config")
+	resp, err := authenticatedRequest(t, url, http.MethodGet, "/api/config", nil)
 	if err != nil {
 		t.Fatalf("GET /api/config failed: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestConfigEndpointIgnoresLegacyPortsField(t *testing.T) {
 	defer server.Close()
 
 	body := bytes.NewBufferString(`{"preset":"wechat","ttl":64,"ports":"legacy-value","log":"info"}`)
-	resp, err := http.Post(url+"/api/config", "application/json", body)
+	resp, err := authenticatedRequest(t, url, http.MethodPost, "/api/config", body)
 	if err != nil {
 		t.Fatalf("POST /api/config failed: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestQuitEndpointSignalsApplicationShutdown(t *testing.T) {
 	}
 	defer server.Close()
 
-	resp, err := http.Post(url+"/api/quit", "application/json", nil)
+	resp, err := authenticatedRequest(t, url, http.MethodPost, "/api/quit", nil)
 	if err != nil {
 		t.Fatalf("POST /api/quit failed: %v", err)
 	}

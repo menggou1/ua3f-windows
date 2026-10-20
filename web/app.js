@@ -27,11 +27,12 @@ let formDirty = false;
 let actionPending = false;
 let exiting = false;
 let pollTimer;
+const sessionToken = document.querySelector('meta[name="ua3f-token"]').content;
 
 async function fetchJSON(url, options) {
   const response = await fetch(url, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: { "Content-Type": "application/json", ...options?.headers, "X-UA3F-Token": sessionToken },
   });
   const data = await response.json();
   if (!response.ok) {
@@ -212,10 +213,24 @@ exitBtn.addEventListener("click", async () => {
     console.debug("application server closed", error);
   }
   exiting = true;
+  document.getElementById("diagnoseBtn").disabled = true;
   statusTextEl.textContent = "程序已退出";
   statusMetaEl.textContent = "现在可以关闭此页面";
   statusCardEl.dataset.status = "idle";
   showNotice("后台程序已退出", "success");
+});
+
+document.getElementById("diagnoseBtn").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const result = await fetchJSON("/api/diagnostics");
+    document.getElementById("diagnostics").textContent = UA3FUI.formatDiagnostics(result);
+  } catch (error) {
+    showError(error);
+  } finally {
+    button.disabled = false;
+  }
 });
 
 async function bootstrap() {
