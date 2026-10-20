@@ -1,0 +1,42 @@
+name: Windows checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Formatting
+        shell: pwsh
+        run: |
+          $sources = @(Get-ChildItem -File -Filter *.go).FullName + @(Get-ChildItem third_party/godivert -File -Filter *.go).FullName
+          $unformatted = & gofmt -l $sources
+          if ($unformatted) { throw "Unformatted Go files: $unformatted" }
+      - run: go test ./...
+      - run: go vet ./...
+      - name: Race detector
+        shell: pwsh
+        env:
+          CGO_ENABLED: '1'
+        run: |
+          $env:PATH = "C:\msys64\mingw64\bin;C:\msys64\ucrt64\bin;C:\mingw64\bin;$env:PATH"
+          $env:CC = (Get-Command gcc -ErrorAction Stop).Source
+          go test -race ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - run: node --test web_ui_test.cjs
+      - run: go build -trimpath -ldflags "-s -w" -o ua3f-win.exe

@@ -10,11 +10,11 @@ Write-Host " ua3f-win build script" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
-$goVersion = & go version 2>$null
-if (-not $goVersion) {
+if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
     Write-Host "[X] Go was not found. Install Go 1.25+ first." -ForegroundColor Red
     exit 1
 }
+$goVersion = & go version
 Write-Host "[+] $goVersion"
 
 $dllPath = Join-Path $projectRoot "windivert_amd64.dll"
@@ -40,7 +40,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "[*] Building ua3f-win.exe ..."
-& go build -ldflags "-s -w" -o "$projectRoot\ua3f-win.exe"
+& go build -trimpath -ldflags "-s -w" -o "$projectRoot\ua3f-win.exe"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[X] go build failed" -ForegroundColor Red
     exit 1
