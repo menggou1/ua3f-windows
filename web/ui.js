@@ -36,9 +36,14 @@
     };
 
     if (snapshot.status === "running") {
+      let meta = `运行正常 · 已运行 ${formatDuration(snapshot.startedAt, now)}`;
+      if (snapshot.configPending) {
+        if (snapshot.runningConfig) meta += ` · 当前 TTL ${snapshot.runningConfig.ttl}`;
+        meta += " · 已保存新配置，点击“应用并重启”后生效";
+      }
       return {
         label: "运行中",
-        meta: `运行正常 · 已运行 ${formatDuration(snapshot.startedAt, now)}`,
+        meta,
         tone: "running",
       };
     }

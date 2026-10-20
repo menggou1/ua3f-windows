@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,6 +50,25 @@ func (c AppConfig) Normalize() AppConfig {
 	return out
 }
 
+// Validate input before normalization so invalid API values never silently pass.
+// Legacy configurations may still use defaults when loaded from disk.
+func (c AppConfig) Validate() error {
+	if c.TTL == 0 {
+		return fmt.Errorf("TTL 必须是 1 到 255 之间的整数")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Preset)) {
+	case "", "wechat", "pc":
+	default:
+		return fmt.Errorf("运行模式必须为 wechat 或 pc")
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Log)) {
+	case "", "info", "debug", "warn":
+	default:
+		return fmt.Errorf("日志级别必须为 info、debug 或 warn")
+	}
+	return nil
+}
+
 func (c AppConfig) EffectiveUA() string {
 	return c.Normalize().UA
 }
@@ -87,5 +107,24 @@ func SaveAppConfig(path string, cfg AppConfig) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o644)
+	// Keep the last complete configuration until a synced replacement is ready.
+	// Unique temporary files keep independent concurrent writers isolated.
+	f, err := os.CreateTemp(filepath.Dir(path), ".ua3f-config-*")
+	if err != nil {
+		return fmt.Errorf("prepare config: %w", err)
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	_, writeErr := f.Write(data)
+	if writeErr == nil {
+		writeErr = f.Sync()
+	}
+	closeErr := f.Close()
+	if err := errors.Join(writeErr, closeErr); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	if err := replaceConfigFile(tmp, path); err != nil {
+		return fmt.Errorf("replace config (previous config preserved): %w", err)
+	}
+	return nil
 }

@@ -2,9 +2,11 @@ package main
 
 import (
 	"path/filepath"
+	"sync"
 )
 
 type App struct {
+	configMu   sync.Mutex // serialize file replacement and in-memory publication
 	exeDir     string
 	configPath string
 	state      *AppState
@@ -29,6 +31,8 @@ func NewApp(exeDir string) (*App, error) {
 }
 
 func (a *App) SaveConfig(cfg AppConfig) error {
+	a.configMu.Lock()
+	defer a.configMu.Unlock()
 	cfg = cfg.Normalize()
 	if err := SaveAppConfig(a.configPath, cfg); err != nil {
 		return err

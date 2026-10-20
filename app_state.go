@@ -14,26 +14,29 @@ const (
 )
 
 type AppSnapshot struct {
-	Status      string    `json:"status"`
-	Config      AppConfig `json:"config"`
-	LastError   string    `json:"lastError"`
-	StartedAt   time.Time `json:"startedAt"`
-	PacketCount uint64    `json:"packetCount"`
-	TTLCount    uint64    `json:"ttlCount"`
-	UACount     uint64    `json:"uaCount"`
-	Logs        []string  `json:"logs"`
+	Status        string     `json:"status"`
+	Config        AppConfig  `json:"config"`
+	RunningConfig *AppConfig `json:"runningConfig"`
+	ConfigPending bool       `json:"configPending"`
+	LastError     string     `json:"lastError"`
+	StartedAt     time.Time  `json:"startedAt"`
+	PacketCount   uint64     `json:"packetCount"`
+	TTLCount      uint64     `json:"ttlCount"`
+	UACount       uint64     `json:"uaCount"`
+	Logs          []string   `json:"logs"`
 }
 
 type AppState struct {
-	mu          sync.RWMutex
-	status      string
-	config      AppConfig
-	lastError   string
-	startedAt   time.Time
-	packetCount uint64
-	ttlCount    uint64
-	uaCount     uint64
-	logs        []string
+	mu            sync.RWMutex
+	status        string
+	config        AppConfig
+	runningConfig *AppConfig
+	lastError     string
+	startedAt     time.Time
+	packetCount   uint64
+	ttlCount      uint64
+	uaCount       uint64
+	logs          []string
 }
 
 func NewAppState(cfg AppConfig) *AppState {
@@ -61,12 +64,25 @@ func (s *AppState) SetStatus(status, message string) {
 	defer s.mu.Unlock()
 	s.status = status
 	s.lastError = message
+	if status != StatusRunning && status != StatusStopping {
+		s.runningConfig = nil
+	}
 	if status == StatusRunning {
 		s.startedAt = time.Now()
 	}
 	if status == StatusIdle {
 		s.startedAt = time.Time{}
 	}
+}
+
+func (s *AppState) SetRunning(cfg AppConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	normalized := cfg.Normalize()
+	s.runningConfig = &normalized
+	s.status = StatusRunning
+	s.lastError = ""
+	s.startedAt = time.Now()
 }
 
 func (s *AppState) SetCounters(packetCount, ttlCount, uaCount uint64) {
@@ -91,14 +107,21 @@ func (s *AppState) Snapshot() AppSnapshot {
 	defer s.mu.RUnlock()
 
 	logs := append([]string(nil), s.logs...)
+	var runningConfig *AppConfig
+	if s.runningConfig != nil {
+		copy := *s.runningConfig
+		runningConfig = &copy
+	}
 	return AppSnapshot{
-		Status:      s.status,
-		Config:      s.config,
-		LastError:   s.lastError,
-		StartedAt:   s.startedAt,
-		PacketCount: s.packetCount,
-		TTLCount:    s.ttlCount,
-		UACount:     s.uaCount,
-		Logs:        logs,
+		Status:        s.status,
+		Config:        s.config,
+		RunningConfig: runningConfig,
+		ConfigPending: s.status == StatusRunning && runningConfig != nil && *runningConfig != s.config,
+		LastError:     s.lastError,
+		StartedAt:     s.startedAt,
+		PacketCount:   s.packetCount,
+		TTLCount:      s.ttlCount,
+		UACount:       s.uaCount,
+		Logs:          logs,
 	}
 }

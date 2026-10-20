@@ -24,6 +24,7 @@ const presets = {
 
 let currentStatus = "idle";
 let formDirty = false;
+let configPending = false;
 let actionPending = false;
 let exiting = false;
 let pollTimer;
@@ -75,6 +76,9 @@ function applyConfig(config) {
 
 function applyStatus(snapshot) {
   currentStatus = snapshot.status;
+  configPending = Boolean(snapshot.configPending);
+  // Sync changes from another tab without replacing an unfinished local edit.
+  if (snapshot.config && !formDirty && !actionPending) applyConfig(snapshot.config);
   const presentation = UA3FUI.statusPresentation(snapshot);
   statusTextEl.textContent = presentation.label;
   statusMetaEl.textContent = presentation.meta;
@@ -88,7 +92,7 @@ function applyStatus(snapshot) {
 }
 
 function updateControls() {
-  const state = UA3FUI.controlState(currentStatus, formDirty, actionPending);
+  const state = UA3FUI.controlState(currentStatus, formDirty || configPending, actionPending);
   editableFields.forEach((field) => {
     field.disabled = state.fieldsDisabled;
   });
@@ -168,7 +172,9 @@ async function saveOrApply() {
   }
 
   await withPending(() => UA3FUI.applyAndRestart({
-    save: saveConfig,
+    // An already-saved change from another tab must not be overwritten by
+    // resubmitting this tab's form. Start reads the latest saved configuration.
+    save: formDirty ? saveConfig : async () => {},
     stop: async () => {
       const snapshot = await fetchJSON("/api/stop", { method: "POST" });
       applyStatus(snapshot);

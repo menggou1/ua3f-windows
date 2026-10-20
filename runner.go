@@ -86,7 +86,6 @@ func (r *Runner) Start(cfg AppConfig) error {
 	}
 	s := &runnerSession{done: make(chan struct{})}
 	r.run = s
-	r.state.SetConfig(cfg.Normalize())
 	r.state.SetCounters(0, 0, 0)
 	r.state.SetStatus(StatusStarting, "")
 	r.mu.Unlock()
@@ -104,7 +103,7 @@ func (r *Runner) Start(cfg AppConfig) error {
 		r.finish(s, err)
 		return err
 	}
-	r.state.SetStatus(StatusRunning, "")
+	r.state.SetRunning(cfg)
 	r.mu.Unlock()
 	r.logf("[+] WinDivert running")
 	go r.loop(s, cfg.ToRuntimeConfig())

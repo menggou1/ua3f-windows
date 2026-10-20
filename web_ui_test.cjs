@@ -119,3 +119,76 @@ test("browser requests carry the page session token", async () => {
 test("stop remains available after an error so handle cleanup can be retried", () => {
   assert.equal(loadUI().controlState("error", false, false).stopDisabled, false);
 });
+
+function createScriptHarness(respond) {
+  const vm = require("node:vm");
+  const fs = require("node:fs");
+  const elements = new Map();
+  const document = {
+    getElementById(id) {
+      if (!elements.has(id)) elements.set(id, {
+        listeners: {}, dataset: {}, value: "", textContent: "",
+        addEventListener(type, action) { this.listeners[type] = action; },
+        setAttribute() {},
+      });
+      return elements.get(id);
+    },
+    querySelector() { return {content: "session-secret"}; },
+  };
+  const requests = [];
+  const config = {preset:"wechat",ttl:64,log:"info"};
+  const context = vm.createContext({
+    document, console, UA3FUI:loadUI(), window:{setInterval(){}},
+    fetch:async(url,options)=>{
+      requests.push({url,options});
+      const data = respond ? await respond(url,options) : url === "/api/config" ? config : {status:"idle",config,logs:[]};
+      return {ok:true,json:async()=>data};
+    },
+  });
+  const ready = vm.runInContext(fs.readFileSync(require.resolve("./web/app.js"),"utf8"),context);
+  return {elements,context,requests,ready,run:source=>vm.runInContext(source,context)};
+}
+
+test("another tab's saved config is displayed as pending and can be applied", async () => {
+  const harness = createScriptHarness();
+  await harness.ready;
+  harness.run('applyStatus({status:"running",config:{preset:"wechat",ttl:65,log:"info"},runningConfig:{ttl:64},configPending:true,logs:[]})');
+  assert.equal(harness.elements.get("ttl").value,65);
+  assert.equal(harness.elements.get("saveBtn").textContent,"应用并重启");
+  assert.equal(harness.elements.get("saveBtn").disabled,false);
+  assert.match(harness.elements.get("statusMeta").textContent,/当前 TTL 64/);
+  assert.match(harness.elements.get("statusMeta").textContent,/后生效/);
+});
+
+test("status polling preserves unfinished edits in the current tab", async () => {
+  const harness = createScriptHarness();
+  await harness.ready;
+  const ttl = harness.elements.get("ttl");
+  ttl.value = "66";
+  ttl.listeners.input();
+  harness.run('applyStatus({status:"running",config:{preset:"wechat",ttl:65,log:"info"},runningConfig:{ttl:64},configPending:true,logs:[]})');
+  assert.equal(ttl.value,"66");
+  assert.equal(harness.elements.get("saveBtn").disabled,false);
+});
+
+test("applying a saved change restarts without reposting a stale form", async () => {
+  const config = {preset:"wechat",ttl:65,log:"info"};
+  let running = true;
+  let activeTTL = 64;
+  const harness = createScriptHarness((url,options)=>{
+    if (url === "/api/config") {
+      assert.notEqual(options.method,"POST","unchanged form must not overwrite another tab's save");
+      return config;
+    }
+    if (url === "/api/stop") running = false;
+    if (url === "/api/start") { running = true; activeTTL = config.ttl; }
+    return {status:running?"running":"idle",config,runningConfig:running?{ttl:activeTTL}:null,configPending:running&&activeTTL!==config.ttl,logs:[]};
+  });
+  await harness.ready;
+  harness.requests.length = 0;
+  await harness.run("saveOrApply()");
+  assert.deepEqual(harness.requests.map(({url})=>url),["/api/stop","/api/status","/api/start"]);
+  assert.equal(activeTTL,65);
+  assert.equal(harness.elements.get("saveBtn").disabled,true);
+  assert.equal(harness.elements.get("saveBtn").textContent,"配置已生效");
+});

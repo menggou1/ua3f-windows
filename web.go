@@ -79,6 +79,10 @@ func startWebServer(app *App) (*http.Server, string, <-chan struct{}, error) {
 				writeError(w, status, err)
 				return
 			}
+			if err := cfg.Validate(); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
 			if err := app.SaveConfig(cfg); err != nil {
 				writeError(w, http.StatusInternalServerError, err)
 				return
