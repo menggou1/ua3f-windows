@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"flag"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 //go:embed windivert_amd64.dll
@@ -131,6 +133,11 @@ func runLegacyCLI() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
 	_ = runner.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := runner.Wait(ctx); err != nil {
+		log.Printf("[-] waiting for driver shutdown: %v", err)
+	}
 }
 
 func waitForShutdown(server *http.Server, app *App, quit <-chan struct{}) {
@@ -148,6 +155,11 @@ func waitForShutdown(server *http.Server, app *App, quit <-chan struct{}) {
 	app.state.AppendLog("[*] shutdown requested")
 	_ = app.Stop()
 	_ = server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := app.runner.Wait(ctx); err != nil {
+		launchLogger.Printf("driver shutdown timeout: %v", err)
+	}
 }
 
 func detectPresetKey(ua string) string {

@@ -3,6 +3,7 @@ package godivert
 import (
 	"errors"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"unsafe"
 )
@@ -26,7 +27,7 @@ func init() {
 // Used to call WinDivert's functions
 type WinDivertHandle struct {
 	handle uintptr
-	open   bool
+	open   atomic.Bool
 }
 
 // LoadDLL loads the WinDivert DLL depending the OS (x64 or x86) and the given DLL path.
@@ -49,6 +50,22 @@ func LoadDLL(path64, path32 string) {
 	winDivertHelperCalcChecksums = winDivertDLL.NewProc("WinDivertHelperCalcChecksums")
 	winDivertHelperEvalFilter = winDivertDLL.NewProc("WinDivertHelperEvalFilter")
 	winDivertHelperCheckFilter = winDivertDLL.NewProc("WinDivertHelperCheckFilter")
+}
+
+// LoadDLLChecked resolves the library and all required entry points without
+// LazyProc.Call panicking on missing DLLs or incompatible exports.
+// Call only when no packet handles are active.
+func LoadDLLChecked(path64, path32 string) error {
+	LoadDLL(path64, path32)
+	if err := winDivertDLL.Load(); err != nil {
+		return err
+	}
+	for _, proc := range []*syscall.LazyProc{winDivertOpen, winDivertClose, winDivertRecv, winDivertSend, winDivertHelperCalcChecksums} {
+		if err := proc.Find(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Create a new WinDivertHandle by calling WinDivertOpen and returns it
@@ -79,29 +96,29 @@ func NewWinDivertHandleWithFlags(filter string, flags uint8) (*WinDivertHandle, 
 
 	winDivertHandle := &WinDivertHandle{
 		handle: handle,
-		open:   true,
 	}
+	winDivertHandle.open.Store(true)
 	return winDivertHandle, nil
 }
 
 // Close the Handle
 // See https://reqrypt.org/windivert-doc.html#divert_close
 func (wd *WinDivertHandle) Close() error {
-	if !wd.open {
+	if !wd.open.CompareAndSwap(true, false) {
 		return nil
 	}
 	success, _, err := winDivertClose.Call(wd.handle)
 	if success == 0 {
+		wd.open.Store(true)
 		return err
 	}
-	wd.open = false
 	return nil
 }
 
 // Divert a packet from the Network Stack
 // https://reqrypt.org/windivert-doc.html#divert_recv
 func (wd *WinDivertHandle) Recv() (*Packet, error) {
-	if !wd.open {
+	if !wd.open.Load() {
 		return nil, errors.New("can't receive, the handle isn't open")
 	}
 
@@ -137,7 +154,7 @@ func (wd *WinDivertHandle) Recv() (*Packet, error) {
 func (wd *WinDivertHandle) Send(packet *Packet) (uint, error) {
 	var sendLen uint32
 
-	if !wd.open {
+	if !wd.open.Load() {
 		return 0, errors.New("can't Send, the handle isn't open")
 	}
 
@@ -208,7 +225,7 @@ func HelperEvalFilter(packet *Packet, filter string) (bool, error) {
 // A loop that capture packets by calling Recv and sends them on a channel as long as the handle is open
 // If Recv() returns an error, the loop is stopped and the channel is closed
 func (wd *WinDivertHandle) recvLoop(packetChan chan<- *Packet) {
-	for wd.open {
+	for wd.open.Load() {
 		packet, err := wd.Recv()
 		if err != nil {
 			//close(packetChan)
@@ -221,7 +238,7 @@ func (wd *WinDivertHandle) recvLoop(packetChan chan<- *Packet) {
 
 // Create a new channel that will be used to pass captured packets and returns it calls recvLoop to maintain a loop
 func (wd *WinDivertHandle) Packets() (chan *Packet, error) {
-	if !wd.open {
+	if !wd.open.Load() {
 		return nil, errors.New("the handle isn't open")
 	}
 	packetChan := make(chan *Packet, PacketChanCapacity)
