@@ -160,10 +160,12 @@ func (r *Runner) Stop() error {
 	s.cancelled = true
 	r.state.SetStatus(StatusStopping, "")
 	h := s.handle
-	finished := s.finished
 	r.mu.Unlock()
 	if h != nil {
 		err := s.close()
+		r.mu.Lock()
+		finished := s.finished
+		r.mu.Unlock()
 		if finished {
 			r.finish(s, err)
 		} else if err != nil {

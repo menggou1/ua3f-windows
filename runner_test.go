@@ -188,3 +188,42 @@ func TestRunnerCloseFailureCanBeRetriedWithoutOpeningAnotherHandle(t *testing.T)
 		t.Fatal("failed close not recovered")
 	}
 }
+
+type blockedFailingCloseHandle struct {
+	*fakePacketHandle
+	entered  chan struct{}
+	release  chan struct{}
+	attempts atomic.Int32
+}
+
+func (h *blockedFailingCloseHandle) Close() error {
+	if h.attempts.Add(1) == 1 {
+		close(h.entered)
+		<-h.release
+		return errors.New("synthetic first close failure")
+	}
+	return h.fakePacketHandle.Close()
+}
+func TestRunnerConcurrentCloseRetryFinishesSession(t *testing.T) {
+	for i := 0; i < 50; i++ {
+		state := NewAppState(DefaultAppConfig())
+		r := NewRunner(t.TempDir(), state)
+		h := &blockedFailingCloseHandle{fakePacketHandle: newFakeHandle(), entered: make(chan struct{}), release: make(chan struct{})}
+		h.recvErr = errors.New("receive failed")
+		r.open = func() (packetHandle, error) { return h, nil }
+		if err := r.Start(DefaultAppConfig()); err != nil {
+			t.Fatal(err)
+		}
+		<-h.entered
+		stopped := make(chan error, 1)
+		go func() { stopped <- r.Stop() }()
+		close(h.release)
+		if err := <-stopped; err != nil {
+			t.Fatal(err)
+		}
+		waitRunner(t, r)
+		if state.Snapshot().Status != StatusIdle {
+			t.Fatalf("cleanup remained in %s after successful retry", state.Snapshot().Status)
+		}
+	}
+}
